@@ -15,7 +15,6 @@ use alkanes_support::{
 
 use bitcoin::hashes::Hash;
 use bitcoin::{Txid, Block, Transaction};
-use sha2::{Digest, Sha256};
 
 use anyhow::{anyhow, Result};
 use std::sync::Arc;
@@ -110,7 +109,7 @@ impl PandaRoll {
 
     for alkane in context.incoming_alkanes.0.iter() {
       if !self.is_valid_panda(&alkane.id)? {
-        return Err(anyhow!("Invalid panda ID"));
+        return Err(anyhow!("Invalid Panda ID"));
       }
 
       self.add_instance(&alkane.id)?;
@@ -139,7 +138,7 @@ impl PandaRoll {
     }
 
     let count = self.instances_count();
-    if count < 4 {
+    if count < 1 {
       return Err(anyhow!("Not enough Pandas available to roll"));
     }
 
@@ -152,41 +151,26 @@ impl PandaRoll {
       return Ok(CallResponse::default());
     }
 
-    let mut rolled_pandas = Vec::new();
+    // Win case - add one more panda
+    let instance_id = self.pop_instance()?;
+    response.alkanes.0.push(AlkaneTransfer {
+      id: instance_id,
+      value: 1u128,
+    });
 
-    // Add multiplier-1 instances to response (since incoming counts as 1)
-    for _ in 0..(multiplier - 1) {
-      let instance_id = self.pop_instance()?;
-      rolled_pandas.push(AlkaneTransfer {
-        id: instance_id,
-        value: 1u128,
-      });
-    }
-
-    response.alkanes.0.extend(rolled_pandas);
     Ok(response)
   }
 
   fn calculate_random_multiplier(&self) -> Result<u8> {
     let block_hash = self.block_hash()?;
     let txid = self.transaction_id()?;
-
-    let mut hasher = Sha256::new();
-    hasher.update(b"alkane-pandas-roll"); 
-    hasher.update(&block_hash);
-    hasher.update(&txid.as_byte_array());
-
-    let digest = hasher.finalize();
-    let random_value = digest.iter().fold(0u8, |acc, &b| acc ^ b);
-    
-    Ok(match random_value {
-      0..=153 => 0,    // 60% chance (0-153)
-      154..=230 => 2,  // 30% chance (154-230)
-      231..=245 => 3,  // 8% chance (231-245)
-      _ => 4,          // 2% chance (246-255)
-    })
+    let txid_bytes = txid.as_byte_array();
+  
+    let value = block_hash[31].wrapping_add(txid_bytes[31]);
+  
+    Ok(if value < 141 { 0 } else { 2 })
   }
-
+  
   fn instances_pointer(&self) -> StoragePointer {
     StoragePointer::from_keyword("/instances")
   }
