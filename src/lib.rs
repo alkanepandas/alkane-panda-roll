@@ -120,8 +120,6 @@ impl PandaRoll {
 
   fn roll(&self) -> Result<CallResponse> {
     let context = self.context()?;
-    let mut response = CallResponse::forward(&context.incoming_alkanes);
-
     let txid = self.transaction_id()?;
 
     // Enforce one roll per transaction
@@ -144,33 +142,38 @@ impl PandaRoll {
 
     self.add_tx_hash(&txid)?;
 
-    let multiplier = self.calculate_random_multiplier()?;
+    let multiplier = self.calculate_random_multiplier(&txid)?;
 
     if multiplier == 0 {
-      self.add_instance(&context.incoming_alkanes.0[0].id)?;
-      return Ok(CallResponse::default());
+      for alkane in context.incoming_alkanes.0.iter() {  
+        self.add_instance(&alkane.id)?;
+      }
+  
+      Ok(CallResponse::default())
+    } else {
+      let mut response = CallResponse::forward(&context.incoming_alkanes);
+
+      // Win case - add one more panda
+      let instance_id = self.pop_instance()?;
+
+      response.alkanes.0.push(AlkaneTransfer {
+        id: instance_id,
+        value: 1u128,
+      }); 
+
+      Ok(response)
     }
-
-    // Win case - add one more panda
-    let instance_id = self.pop_instance()?;
-    response.alkanes.0.push(AlkaneTransfer {
-      id: instance_id,
-      value: 1u128,
-    });
-
-    Ok(response)
   }
 
-  fn calculate_random_multiplier(&self) -> Result<u8> {
+  fn calculate_random_multiplier(&self, txid: &Txid) -> Result<u8> {
     let block_hash = self.block_hash()?;
-    let txid = self.transaction_id()?;
     let txid_bytes = txid.as_byte_array();
-  
+
     let value = block_hash[31].wrapping_add(txid_bytes[31]);
-  
+
     Ok(if value < 141 { 0 } else { 2 })
   }
-  
+
   fn instances_pointer(&self) -> StoragePointer {
     StoragePointer::from_keyword("/instances")
   }
